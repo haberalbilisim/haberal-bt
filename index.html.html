@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Haberal Ortaokulu BT Yönetimi v14</title>
+    <style>
+        :root { --primary: #004a99; --secondary: #f4f7f6; --accent: #e67e22; --success: #27ae60; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: var(--secondary); color: #333; }
+        
+        /* Navigasyon ve Ekran Öğeleri */
+        nav { background: var(--primary); color: white; display: flex; justify-content: center; padding: 15px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        nav a { color: white; text-decoration: none; margin: 0 10px; font-weight: bold; cursor: pointer; padding: 8px 12px; border-radius: 5px; font-size: 13px; }
+        nav a:hover, nav a.active { background: rgba(255,255,255,0.2); }
+        
+        .container { max-width: 1000px; margin: 20px auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .page { display: none; }
+        .page.active { display: block; }
+
+        .card { background: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #eee; margin-bottom: 20px; }
+        .list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #eee; }
+        
+        /* Butonlar */
+        .btn-main { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-print { background: #2c3e50; color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; float: right; }
+        
+        .filter-group { display: flex; gap: 10px; margin: 15px 0; align-items: center; }
+        .btn-filter { padding: 6px 15px; border: 1px solid var(--primary); background: white; color: var(--primary); border-radius: 20px; cursor: pointer; font-size: 12px; }
+        .btn-filter.active { background: var(--primary); color: white; }
+
+        /* Yazdırma Alanı Ayarları */
+        @media print {
+            nav, .card, .filter-group, .btn-print, button { display: none !important; }
+            .container { box-shadow: none; margin: 0; width: 100%; max-width: 100%; }
+            .page { display: block !important; }
+            .list-item { border-bottom: 1px solid #000; }
+            body { background: white; }
+            .print-header { display: block !important; text-align: center; margin-bottom: 20px; }
+        }
+        .print-header { display: none; border-bottom: 2px solid #333; padding-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<nav id="mainNav">
+    <a onclick="showPage('ozet')" id="link-ozet" class="active">Analiz</a>
+    <a onclick="showPage('ogrenciler')" id="link-ogrenciler">Öğrenci & Notlar</a>
+    <a onclick="showPage('odevler')" id="link-odevler">Ödev Takibi</a>
+    <a onclick="showPage('basari')" id="link-basari">Başarı Tablosu</a>
+</nav>
+
+<div class="container" id="printableArea">
+    
+    <div class="print-header">
+        <h1>Haberal Ortaokulu</h1>
+        <h3>Bilişim Teknolojileri Ödev Takip Raporu</h3>
+        <p id="printDate"></p>
+    </div>
+
+    <div id="odevler" class="page">
+        <button class="btn-print" onclick="prepareAndPrint()">🖨️ Listeyi Yazdır (PDF)</button>
+        <h2>Ödev Takip Paneli</h2>
+        
+        <div class="card">
+            <select id="filterClass" onchange="updateStudentDropdown()">
+                <option value="">Sınıf Seç...</option>
+                <option value="5-A">5-A</option><option value="5-B">5-B</option><option value="5-C">5-C</option>
+                <option value="6-A">6-A</option><option value="6-B">6-B</option><option value="6-C">6-C</option>
+            </select>
+            <select id="studentSelect"><option value="">Öğrenci Seç...</option></select>
+            <input type="text" id="hwSubject" placeholder="Ödev Konusu">
+            <button onclick="assignHomework()" class="btn-main">Kaydet</button>
+        </div>
+
+        <div class="filter-group">
+            <strong>Filtrele:</strong>
+            <button class="btn-filter active" id="f-all" onclick="renderHomeworkLog('all')">Tüm Zamanlar</button>
+            <button class="btn-filter" id="f-today" onclick="renderHomeworkLog('today')">Bugün</button>
+            <button class="btn-filter" id="f-week" onclick="renderHomeworkLog('week')">Bu Hafta</button>
+        </div>
+        
+        <div id="homeworkLogCount" style="margin-bottom: 15px; font-weight: bold; color: var(--primary);"></div>
+        <div id="homeworkLog"></div>
+    </div>
+
+    <div id="ozet" class="page active">
+        <h2>Sistem Analizi</h2>
+        <div id="barChart" class="card"></div>
+    </div>
+
+    <div id="ogrenciler" class="page">
+        <h2>Öğrenci Kayıtları</h2>
+        <div class="card">
+            <textarea id="bulkNames" placeholder="İsimleri virgülle ayırın..."></textarea>
+            <button onclick="addBulkStudents()" class="btn-main" style="width:100%">Kaydet</button>
+        </div>
+        <div id="studentDisplayList"></div>
+    </div>
+
+    <div id="basari" class="page">
+        <h2>Genel Başarı Tablosu</h2>
+        <div id="classGroupedList"></div>
+    </div>
+
+</div>
+
+<script>
+    const CLASSES = ["5-A","5-B","5-C","6-A","6-B","6-C"];
+
+    function showPage(id) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        document.getElementById('link-' + id).classList.add('active');
+        if(id === 'odevler') renderHomeworkLog('all');
+        if(id === 'ozet') renderStats();
+        if(id === 'ogrenciler') renderStudents();
+        if(id === 'basari') renderClassGroups();
+    }
+
+    // --- ÖDEV VE YAZDIRMA SİSTEMİ ---
+    function assignHomework() {
+        const name = document.getElementById('studentSelect').value;
+        const cls = document.getElementById('filterClass').value;
+        const task = document.getElementById('hwSubject').value;
+        if(!name || !task) return;
+
+        let hws = JSON.parse(localStorage.getItem('haberal_v14_hw')) || [];
+        hws.push({
+            studentName: name, 
+            className: cls, 
+            task: task, 
+            timestamp: new Date().getTime(),
+            dateStr: new Date().toLocaleDateString('tr-TR')
+        });
+        localStorage.setItem('haberal_v14_hw', JSON.stringify(hws));
+        document.getElementById('hwSubject').value = '';
+        renderHomeworkLog('all');
+    }
+
+    function renderHomeworkLog(filterType) {
+        const div = document.getElementById('homeworkLog');
+        const countDiv = document.getElementById('homeworkLogCount');
+        div.innerHTML = '';
+        
+        document.querySelectorAll('.btn-filter').forEach(b => b.classList.remove('active'));
+        if(document.getElementById('f-' + filterType)) document.getElementById('f-' + filterType).classList.add('active');
+
+        let hws = JSON.parse(localStorage.getItem('haberal_v14_hw')) || [];
+        const now = new Date().getTime();
+        
+        let filteredHws = hws.filter(h => {
+            if(filterType === 'today') return (now - h.timestamp) < 86400000;
+            if(filterType === 'week') return (now - h.timestamp) < 604800000;
+            return true;
+        });
+
+        countDiv.innerText = `Raporlanan Ödev Sayısı: ${filteredHws.length}`;
+
+        filteredHws.reverse().forEach(h => {
+            div.innerHTML += `
+                <div class="list-item">
+                    <span><strong>${h.className}</strong> - ${h.studentName}</span>
+                    <span>${h.task} <small style="color:#999; margin-left:10px;">(${h.dateStr})</small></span>
+                </div>`;
+        });
+    }
+
+    function prepareAndPrint() {
+        document.getElementById('printDate').innerText = "Rapor Tarihi: " + new Date().toLocaleString('tr-TR');
+        window.print();
+    }
+
+    // --- DİĞER FONKSİYONLAR ---
+    function updateStudentDropdown() {
+        const filter = document.getElementById('filterClass').value;
+        const select = document.getElementById('studentSelect');
+        select.innerHTML = '<option value="">Öğrenci...</option>';
+        let stds = JSON.parse(localStorage.getItem('haberal_v14_std')) || [];
+        stds.filter(s => s.className === filter).forEach(s => {
+            select.innerHTML += `<option value="${s.name}">${s.name}</option>`;
+        });
+    }
+
+    function addBulkStudents() {
+        const raw = document.getElementById('bulkNames').value;
+        const cls = document.getElementById('filterClass').value || "5-A";
+        let stds = JSON.parse(localStorage.getItem('haberal_v14_std')) || [];
+        raw.split(',').forEach(n => { if(n.trim()) stds.push({name: n.trim(), className: cls}); });
+        localStorage.setItem('haberal_v14_std', JSON.stringify(stds));
+        document.getElementById('bulkNames').value = '';
+        renderStudents();
+    }
+
+    function renderStudents() {
+        const div = document.getElementById('studentDisplayList');
+        div.innerHTML = '';
+        let stds = JSON.parse(localStorage.getItem('haberal_v14_std')) || [];
+        stds.forEach(s => { div.innerHTML += `<div class="list-item"><span>[${s.className}] ${s.name}</span></div>`; });
+    }
+
+    function renderStats() {
+        let hws = JSON.parse(localStorage.getItem('haberal_v14_hw')) || [];
+        const chart = document.getElementById('barChart');
+        chart.innerHTML = '<h4>Sınıf Ödev Dağılımı</h4>';
+        CLASSES.forEach(c => {
+            let count = hws.filter(h => h.className === c).length;
+            chart.innerHTML += `<div style="margin-bottom:10px;">${c}: ${count} ödev</div>`;
+        });
+    }
+
+    function renderClassGroups() {
+        const div = document.getElementById('classGroupedList');
+        div.innerHTML = '';
+        let stds = JSON.parse(localStorage.getItem('haberal_v14_std')) || [];
+        let hws = JSON.parse(localStorage.getItem('haberal_v14_hw')) || [];
+        CLASSES.forEach(c => {
+            let cStds = stds.filter(s => s.className === c);
+            if(cStds.length > 0) {
+                div.innerHTML += `<div style="background:#eee; padding:5px; margin-top:10px;">${c} Sınıfı</div>`;
+                cStds.forEach(s => {
+                    let count = hws.filter(h => h.studentName === s.name && h.className === c).length;
+                    div.innerHTML += `<div class="list-item"><span>${s.name}</span> <span>${count} Ödev</span></div>`;
+                });
+            }
+        });
+    }
+
+    window.onload = () => { showPage('ozet'); };
+</script>
+</body>
+</html>
